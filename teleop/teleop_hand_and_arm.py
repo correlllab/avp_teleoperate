@@ -19,6 +19,45 @@ from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 
 
+from robot_hand import H1HandController
+from dex_retargeting.retargeting_config import RetargetingConfig
+from pathlib import Path
+import yaml
+RetargetingConfig.set_default_urdf_dir('../assets')
+with Path('/home/humanoid/avp_teleoperate/assets/inspire_hand/inspire_hand.yml').open('r') as f:
+    cfg = yaml.safe_load(f)
+left_retargeting_config = RetargetingConfig.from_dict(cfg['left'])
+right_retargeting_config = RetargetingConfig.from_dict(cfg['right'])
+left_retargeting = left_retargeting_config.build()
+right_retargeting = right_retargeting_config.build()
+
+
+def compute_hand_vector(left_hand_mat, right_hand_mat):
+    """
+    Converts a 25x3 hand keypoint matrix into a 6D joint control vector.
+
+    Args:
+        hand_array (np.ndarray): 25x3 matrix of hand keypoints (x, y, z).
+    
+    Returns:
+        np.ndarray: 6D vector [pinky, ring, middle, index, thumb, thumb_angle].
+    """
+    tip_indices = [4, 9, 14, 19, 24]
+
+
+    left_qpos = left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+    right_qpos = right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+
+    right_angles = [1.7 - right_qpos[i] for i in [4, 6, 2, 0]]
+    right_angles.append(1.2 - right_qpos[8])
+    right_angles.append(0.5 - right_qpos[9])
+
+    left_angles = [1.7- left_qpos[i] for i in  [4, 6, 2, 0]]
+    left_angles.append(1.2 - left_qpos[8])
+    left_angles.append(0.5 - left_qpos[9])
+
+    return left_angles, right_angles
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_dir', type = str, default = './utils/data', help = 'path to save data')
@@ -39,11 +78,12 @@ if __name__ == '__main__':
     img_config = {
         'fps': 30,
         'head_camera_type': 'opencv',
-        'head_camera_image_shape': [480, 1280],  # Head camera resolution
-        'head_camera_id_numbers': [0],
-        'wrist_camera_type': 'opencv',
-        'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
-        'wrist_camera_id_numbers': [2, 4],
+        #'head_camera_image_shape': [480, 1280],  # Head camera resolution
+        'head_camera_image_shape': [480, 848],  # Head camera resolution
+        'head_camera_id_numbers': [4],
+        #'wrist_camera_type': 'opencv',
+        #'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
+        #'wrist_camera_id_numbers': [2, 4],
     }
     ASPECT_RATIO_THRESHOLD = 2.0 # If the aspect ratio exceeds this value, it is considered binocular
     if len(img_config['head_camera_id_numbers']) > 1 or (img_config['head_camera_image_shape'][1] / img_config['head_camera_image_shape'][0] > ASPECT_RATIO_THRESHOLD):
@@ -104,7 +144,7 @@ if __name__ == '__main__':
         gripper_ctrl = Gripper_Controller(left_hand_array, right_hand_array, dual_gripper_data_lock, dual_gripper_state_array, dual_gripper_action_array)
     elif args.hand == "inspire1":
         print("Inspire1_Controller comming soon.")
-        pass
+        hand_ctrl = H1HandController()
     else:
         pass
     
@@ -114,18 +154,26 @@ if __name__ == '__main__':
         
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
-        if user_input.lower() == 'r':
+        if user_input.lower() is not None:
+            print("Start the subsequent program.")
             arm_ctrl.speed_gradual_max()
 
             running = True
             while running:
                 start_time = time.time()
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-
+                #print(f"{left_hand=}\n{right_hand=}\n{left_hand.shape=}\n{right_hand.shape=}")
+                
+                    
                 # send hand skeleton data to hand_ctrl.control_process
-                if args.hand:
+                if args.hand == "inspire1":
+                    lhand_vec, rhand_vec = compute_hand_vector(left_hand, right_hand)
+                    hand_ctrl.crtl(rhand_vec, lhand_vec)
+                elif args.hand:
                     left_hand_array[:] = left_hand.flatten()
                     right_hand_array[:] = right_hand.flatten()
+                #print(f"{left_hand=}\n{right_hand=}\n{left_hand.shape=}\n{right_hand.shape=}")
+                
 
                 # get current state data.
                 current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
@@ -247,6 +295,8 @@ if __name__ == '__main__':
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt, exiting program...")
+    except Exception as e:
+        print(f"Exception occurred: {e}")
     finally:
         arm_ctrl.ctrl_dual_arm_go_home()
         tv_img_shm.unlink()
