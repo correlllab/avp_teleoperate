@@ -12,24 +12,29 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 from teleop.open_television.tv_wrapper import TeleVisionWrapper
-from teleop.robot_control.robot_arm import G1_29_ArmController, H1_2_ArmController
-from teleop.robot_control.robot_arm_ik import G1_29_ArmIK, H1_2_ArmIK
+from teleop.robot_control.robot_arm import H1_2_ArmController
+from teleop.robot_control.robot_arm_ik import H1_2_ArmIK
 from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Gripper_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 
 
-from robot_hand import H1HandController
+from inspire_hand import H1HandController
 from dex_retargeting.retargeting_config import RetargetingConfig
 from pathlib import Path
 import yaml
-RetargetingConfig.set_default_urdf_dir('../assets')
-with Path('/home/humanoid/avp_teleoperate/assets/inspire_hand/inspire_hand.yml').open('r') as f:
+
+
+
+RetargetingConfig.set_default_urdf_dir('/home/humanoid/Programs/avp_teleoperate/assets')
+with Path('/home/humanoid/Programs/avp_teleoperate/assets/inspire_hand/inspire_hand.yml').open('r') as f:
     cfg = yaml.safe_load(f)
+#print(f"{cfg=}")
 left_retargeting_config = RetargetingConfig.from_dict(cfg['left'])
 right_retargeting_config = RetargetingConfig.from_dict(cfg['right'])
 left_retargeting = left_retargeting_config.build()
 right_retargeting = right_retargeting_config.build()
+print("Hand retargeteting loaded")
 
 
 def compute_hand_vector(left_hand_mat, right_hand_mat):
@@ -45,8 +50,8 @@ def compute_hand_vector(left_hand_mat, right_hand_mat):
     tip_indices = [4, 9, 14, 19, 24]
 
 
-    left_qpos = left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
-    right_qpos = right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+    left_qpos = left_retargeting.retarget(left_hand_mat[tip_indices])[[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
+    right_qpos = right_retargeting.retarget(right_hand_mat[tip_indices])[[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]
 
     right_angles = [1.7 - right_qpos[i] for i in [4, 6, 2, 0]]
     right_angles.append(1.2 - right_qpos[8])
@@ -58,6 +63,8 @@ def compute_hand_vector(left_hand_mat, right_hand_mat):
 
     return left_angles, right_angles
 
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_dir', type = str, default = './utils/data', help = 'path to save data')
@@ -67,15 +74,12 @@ if __name__ == '__main__':
     parser.add_argument('--no-record', dest = 'record', action = 'store_false', help = 'Do not save data')
     parser.set_defaults(record = False)
 
-    parser.add_argument('--arm', type=str, choices=['G1_29', 'H1_2'], default='G1_29', help='Select arm controller')
-
-    parser.add_argument('--hand', type=str, choices=['dex3', 'gripper', 'inspire1'], help='Select hand controller')
-
     args = parser.parse_args()
     print(f"args:{args}\n")
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
-    img_config = {
+    img_config = {'fps': 30, 'head_camera_type': 'realsense', 'head_camera_image_shape': [1080, 1920], 'head_camera_id_numbers': ['926522071700']}
+    """img_config = {
         'fps': 30,
         'head_camera_type': 'opencv',
         #'head_camera_image_shape': [480, 1280],  # Head camera resolution
@@ -84,7 +88,7 @@ if __name__ == '__main__':
         #'wrist_camera_type': 'opencv',
         #'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
         #'wrist_camera_id_numbers': [2, 4],
-    }
+    }"""
     ASPECT_RATIO_THRESHOLD = 2.0 # If the aspect ratio exceeds this value, it is considered binocular
     if len(img_config['head_camera_id_numbers']) > 1 or (img_config['head_camera_image_shape'][1] / img_config['head_camera_image_shape'][0] > ASPECT_RATIO_THRESHOLD):
         BINOCULAR = True
@@ -120,33 +124,12 @@ if __name__ == '__main__':
     tv_wrapper = TeleVisionWrapper(BINOCULAR, tv_img_shape, tv_img_shm.name)
 
     # arm
-    if args.arm == 'G1_29':
-        arm_ctrl = G1_29_ArmController()
-        arm_ik = G1_29_ArmIK()
-    elif args.arm == 'H1_2':
-        arm_ctrl = H1_2_ArmController()
-        arm_ik = H1_2_ArmIK()
 
-    # hand
-    if args.hand == "dex3":
-        left_hand_array = Array('d', 75, lock = True)         # [input]
-        right_hand_array = Array('d', 75, lock = True)        # [input]
-        dual_hand_data_lock = Lock()
-        dual_hand_state_array = Array('d', 14, lock = False)  # [output] current left, right hand state(14) data.
-        dual_hand_action_array = Array('d', 14, lock = False) # [output] current left, right hand action(14) data.
-        hand_ctrl = Dex3_1_Controller(left_hand_array, right_hand_array, dual_hand_data_lock, dual_hand_state_array, dual_hand_action_array)
-    elif args.hand == "gripper":
-        left_hand_array = Array('d', 75, lock=True)
-        right_hand_array = Array('d', 75, lock=True)
-        dual_gripper_data_lock = Lock()
-        dual_gripper_state_array = Array('d', 2, lock=False)   # current left, right gripper state(2) data.
-        dual_gripper_action_array = Array('d', 2, lock=False)  # current left, right gripper action(2) data.
-        gripper_ctrl = Gripper_Controller(left_hand_array, right_hand_array, dual_gripper_data_lock, dual_gripper_state_array, dual_gripper_action_array)
-    elif args.hand == "inspire1":
-        print("Inspire1_Controller comming soon.")
-        hand_ctrl = H1HandController()
-    else:
-        pass
+    arm_ctrl = H1_2_ArmController()
+    arm_ik = H1_2_ArmIK()
+
+    
+    hand_ctrl = H1HandController()
     
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
@@ -154,36 +137,29 @@ if __name__ == '__main__':
         
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
-        if user_input.lower() is not None:
+        #if user_input.lower() == 'r':
+        if user_input is not None:
             print("Start the subsequent program.")
             arm_ctrl.speed_gradual_max()
 
             running = True
             while running:
                 start_time = time.time()
-                head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-                #print(f"{left_hand=}\n{right_hand=}\n{left_hand.shape=}\n{right_hand.shape=}")
                 
-                    
+                head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
+                
                 # send hand skeleton data to hand_ctrl.control_process
-                if args.hand == "inspire1":
-                    lhand_vec, rhand_vec = compute_hand_vector(left_hand, right_hand)
-                    hand_ctrl.crtl(rhand_vec, lhand_vec)
-                elif args.hand:
-                    left_hand_array[:] = left_hand.flatten()
-                    right_hand_array[:] = right_hand.flatten()
-                #print(f"{left_hand=}\n{right_hand=}\n{left_hand.shape=}\n{right_hand.shape=}")
+                lhand_vec, rhand_vec = compute_hand_vector(left_hand, right_hand)
+                hand_ctrl.crtl(rhand_vec, lhand_vec)
                 
 
                 # get current state data.
                 current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
                 current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
 
-                # solve ik using motor data and wrist pose, then use ik results to control arms.
                 time_ik_start = time.time()
                 sol_q, sol_tauff  = arm_ik.solve_ik(left_wrist, right_wrist, current_lr_arm_q, current_lr_arm_dq)
                 time_ik_end = time.time()
-                # print(f"ik:\t{round(time_ik_end - time_ik_start, 6)}")
                 arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
                 tv_resized_image = cv2.resize(tv_img_array, (tv_img_shape[1] // 2, tv_img_shape[0] // 2))
@@ -192,7 +168,7 @@ if __name__ == '__main__':
                 if key == ord('q'):
                     running = False
                 elif key == ord('s') and args.record:
-                    recording = not recording # state flipping
+                    recording = not recording  # state flipping
                     if recording:
                         if not recorder.create_episode():
                             recording = False
@@ -201,19 +177,6 @@ if __name__ == '__main__':
 
                 # record data
                 if args.record:
-                    # dex hand or gripper
-                    if args.hand == "dex3":
-                        with dual_hand_data_lock:
-                            left_hand_state = dual_hand_state_array[:7]
-                            right_hand_state = dual_hand_state_array[-7:]
-                            left_hand_action = dual_hand_action_array[:7]
-                            right_hand_action = dual_hand_action_array[-7:]
-                    else:
-                        with dual_gripper_data_lock:
-                            left_hand_state = [dual_gripper_state_array[1]]
-                            right_hand_state = [dual_gripper_state_array[0]]
-                            left_hand_action = [dual_gripper_action_array[1]]
-                            right_hand_action = [dual_gripper_action_array[0]]
                     # head image
                     current_tv_image = tv_img_array.copy()
                     # wrist image
@@ -250,16 +213,6 @@ if __name__ == '__main__':
                                 "qvel":   [],                          
                                 "torque": [],                         
                             },                        
-                            "left_hand": {                                                                    
-                                "qpos":   left_hand_state,           
-                                "qvel":   [],                           
-                                "torque": [],                          
-                            }, 
-                            "right_hand": {                                                                    
-                                "qpos":   right_hand_state,       
-                                "qvel":   [],                           
-                                "torque": [],  
-                            }, 
                             "body": None, 
                         }
                         actions = {
@@ -273,16 +226,6 @@ if __name__ == '__main__':
                                 "qvel":   [],       
                                 "torque": [],       
                             },                         
-                            "left_hand": {                                   
-                                "qpos":   left_hand_action,       
-                                "qvel":   [],       
-                                "torque": [],       
-                            }, 
-                            "right_hand": {                                   
-                                "qpos":   right_hand_action,       
-                                "qvel":   [],       
-                                "torque": [], 
-                            }, 
                             "body": None, 
                         }
                         recorder.add_item(colors=colors, depths=depths, states=states, actions=actions)

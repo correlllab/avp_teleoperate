@@ -71,16 +71,17 @@ if __name__ == "__main__":
     print("controller created")
     try:
         while True:
-            #controller.crtl(controller.labels["open"], controller.labels["open"])
+            controller.crtl(controller.labels["open"], controller.labels["open"])
             print("open")
             time.sleep(1)
-            test_array = np.ones(6)
-            test_array[5] = 0
-            controller.crtl(test_array, controller.labels["open"])
-            controller.crtl(controller.labels["open"], controller.labels["open"])
+            input()
+            #test_array = np.ones(6)
+            #test_array[5] = 0
+            #$controller.crtl(test_array, controller.labels["open"])
+            #controller.crtl(controller.labels["close"], controller.labels["close"])
             
-            print("closed")
-            time.sleep(1)
+            #print("closed")
+            #time.sleep(1)
     except KeyboardInterrupt:
         print("Exiting...")
 
