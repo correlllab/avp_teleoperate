@@ -5,19 +5,18 @@ import cv2
 from multiprocessing import shared_memory, Array, Lock
 import threading
 
-import os 
+import os
 import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 from teleop.open_television.tv_wrapper import TeleVisionWrapper
-from teleop.robot_control.robot_arm import H1_2_ArmController
-from teleop.robot_control.robot_arm_ik import H1_2_ArmIK
 from teleop.robot_control.robot_hand_unitree import Dex3_1_Controller, Gripper_Controller
 from teleop.image_server.image_client import ImageClient
 from teleop.utils.episode_writer import EpisodeWriter
 
+from controller.controller import ArmController
 
 from inspire_hand import H1HandController
 from dex_retargeting.retargeting_config import RetargetingConfig
@@ -43,7 +42,7 @@ def compute_hand_vector(left_hand_mat, right_hand_mat):
 
     Args:
         hand_array (np.ndarray): 25x3 matrix of hand keypoints (x, y, z).
-    
+
     Returns:
         np.ndarray: 6D vector [pinky, ring, middle, index, thumb, thumb_angle].
     """
@@ -98,7 +97,7 @@ if __name__ == '__main__':
         WRIST = True
     else:
         WRIST = False
-    
+
     if BINOCULAR and not (img_config['head_camera_image_shape'][1] / img_config['head_camera_image_shape'][0] > ASPECT_RATIO_THRESHOLD):
         tv_img_shape = (img_config['head_camera_image_shape'][0], img_config['head_camera_image_shape'][1] * 2, 3)
     else:
@@ -111,7 +110,7 @@ if __name__ == '__main__':
         wrist_img_shape = (img_config['wrist_camera_image_shape'][0], img_config['wrist_camera_image_shape'][1] * 2, 3)
         wrist_img_shm = shared_memory.SharedMemory(create = True, size = np.prod(wrist_img_shape) * np.uint8().itemsize)
         wrist_img_array = np.ndarray(wrist_img_shape, dtype = np.uint8, buffer = wrist_img_shm.buf)
-        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name, 
+        img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name,
                                  wrist_img_shape = wrist_img_shape, wrist_img_shm_name = wrist_img_shm.name)
     else:
         img_client = ImageClient(tv_img_shape = tv_img_shape, tv_img_shm_name = tv_img_shm.name)
@@ -125,42 +124,38 @@ if __name__ == '__main__':
 
     # arm
 
-    arm_ctrl = H1_2_ArmController()
-    arm_ik = H1_2_ArmIK()
+    print('Initializing ArmController...')
+    arm_ctrl = ArmController('./assets/h1_2/h1_2.urdf',
+                             dt=1 / args.frequency,
+                             vlim=1.0,
+                             visualize=True)
 
-    
     hand_ctrl = H1HandController()
-    
+
     if args.record:
         recorder = EpisodeWriter(task_dir = args.task_dir, frequency = args.frequency, rerun_log = True)
         recording = False
-        
+
     try:
         user_input = input("Please enter the start signal (enter 'r' to start the subsequent program):\n")
         #if user_input.lower() == 'r':
         if user_input is not None:
             print("Start the subsequent program.")
-            arm_ctrl.speed_gradual_max()
 
             running = True
             while running:
                 start_time = time.time()
-                
+
                 head_rmat, left_wrist, right_wrist, left_hand, right_hand = tv_wrapper.get_data()
-                
+
                 # send hand skeleton data to hand_ctrl.control_process
                 lhand_vec, rhand_vec = compute_hand_vector(left_hand, right_hand)
                 hand_ctrl.crtl(rhand_vec, lhand_vec)
-                
-
-                # get current state data.
-                current_lr_arm_q  = arm_ctrl.get_current_dual_arm_q()
-                current_lr_arm_dq = arm_ctrl.get_current_dual_arm_dq()
 
                 time_ik_start = time.time()
-                sol_q, sol_tauff  = arm_ik.solve_ik(left_wrist, right_wrist, current_lr_arm_q, current_lr_arm_dq)
-                time_ik_end = time.time()
-                arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
+                arm_ctrl.left_ee_target_transformation = left_wrist
+                arm_ctrl.right_ee_target_transformation = right_wrist
+                arm_ctrl.control_step()
 
                 tv_resized_image = cv2.resize(tv_img_array, (tv_img_shape[1] // 2, tv_img_shape[0] // 2))
                 cv2.imshow("record image", tv_resized_image)
@@ -183,10 +178,10 @@ if __name__ == '__main__':
                     if WRIST:
                         current_wrist_image = wrist_img_array.copy()
                     # arm state and action
-                    left_arm_state  = current_lr_arm_q[:7]
-                    right_arm_state = current_lr_arm_q[-7:]
-                    left_arm_action = sol_q[:7]
-                    right_arm_action = sol_q[-7:]
+                    left_arm_state  = arm_ctrl.left_arm_q
+                    right_arm_state = arm_ctrl.right_arm_q
+                    left_arm_action = arm_ctrl.left_arm_action
+                    right_arm_action = arm_ctrl.right_arm_action
 
                     if recording:
                         colors = {}
@@ -203,30 +198,30 @@ if __name__ == '__main__':
                                 colors[f"color_{1}"] = current_wrist_image[:, :wrist_img_shape[1]//2]
                                 colors[f"color_{2}"] = current_wrist_image[:, wrist_img_shape[1]//2:]
                         states = {
-                            "left_arm": {                                                                    
+                            "left_arm": {
                                 "qpos":   left_arm_state.tolist(),    # numpy.array -> list
-                                "qvel":   [],                          
-                                "torque": [],                        
-                            }, 
-                            "right_arm": {                                                                    
-                                "qpos":   right_arm_state.tolist(),       
-                                "qvel":   [],                          
-                                "torque": [],                         
-                            },                        
-                            "body": None, 
+                                "qvel":   [],
+                                "torque": [],
+                            },
+                            "right_arm": {
+                                "qpos":   right_arm_state.tolist(),
+                                "qvel":   [],
+                                "torque": [],
+                            },
+                            "body": None,
                         }
                         actions = {
-                            "left_arm": {                                   
-                                "qpos":   left_arm_action.tolist(),       
-                                "qvel":   [],       
-                                "torque": [],      
-                            }, 
-                            "right_arm": {                                   
-                                "qpos":   right_arm_action.tolist(),       
-                                "qvel":   [],       
-                                "torque": [],       
-                            },                         
-                            "body": None, 
+                            "left_arm": {
+                                "qpos":   left_arm_action.tolist(),
+                                "qvel":   [],
+                                "torque": [],
+                            },
+                            "right_arm": {
+                                "qpos":   right_arm_action.tolist(),
+                                "qvel":   [],
+                                "torque": [],
+                            },
+                            "body": None,
                         }
                         recorder.add_item(colors=colors, depths=depths, states=states, actions=actions)
 
@@ -241,7 +236,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Exception occurred: {e}")
     finally:
-        arm_ctrl.ctrl_dual_arm_go_home()
+        arm_ctrl.goto_configuration(np.zeros_like(arm_ctrl.robot_model.q))
         tv_img_shm.unlink()
         tv_img_shm.close()
         if WRIST:
