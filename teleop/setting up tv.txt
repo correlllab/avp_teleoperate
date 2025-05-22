@@ -1,0 +1,26 @@
+conda create -n tv python=3.9 -c conda-forge -y
+conda activate tv
+
+# 2. Pull Pinocchio *with* CasADi + MeshCat + common deps
+conda install -c conda-forge \
+    pinocchio=3.4.* \
+    casadi \
+    hpp-fcl \
+    eigenpy  # optional but handy
+pip install meshcat
+# 3. Verify the bindings
+python - <<'PY'
+from pinocchio import casadi as cpin
+print("Pinocchio + CasADi OK — SX test:", cpin.SX.sym("q", 6, 1))
+PY
+
+# 1. Remove the incompatible stuff that pulled in NumPy‑2
+pip uninstall -y dex_retargeting pin nlopt numpy scipy matplotlib eigenpy
+
+# 2. Bring the env back to a stable 1.x tool‑chain via conda‑forge
+conda install -c conda-forge \
+    numpy=1.26 scipy=1.10 matplotlib=3.7 nlopt=2.7 eigenpy
+
+# 3. Install a NumPy‑1‑friendly build of dex_retargeting
+#    (<= 0.4.6 according to its changelog)
+pip install "dex_retargeting<0.5.0"
