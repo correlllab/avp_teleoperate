@@ -10,7 +10,7 @@ left:
                        ]
   target_origin_link_names: [ "L_hand_base_link", "L_hand_base_link", "L_hand_base_link", "L_hand_base_link", "L_hand_base_link" ]
   target_task_link_names: [ "L_thumb_tip", "L_index_tip", "L_middle_tip", "L_ring_tip", "L_pinky_tip" ]
-  scaling_factor: 1
+  scaling_factor: 0.8
 
   # Source refers to the retargeting input, which usually corresponds to the human hand
   # The joint indices of human hand joint which corresponds to each link in the target_link_names
@@ -31,7 +31,7 @@ right:
                        ]
   target_origin_link_names: [ "R_hand_base_link", "R_hand_base_link", "R_hand_base_link", "R_hand_base_link", "R_hand_base_link" ]
   target_task_link_names: [ "R_thumb_tip", "R_index_tip", "R_middle_tip", "R_ring_tip", "R_pinky_tip" ]
-  scaling_factor: 1
+  scaling_factor: 0.8
 
   # Source refers to the retargeting input, which usually corresponds to the human hand
   # The joint indices of human hand joint which corresponds to each link in the target_link_names

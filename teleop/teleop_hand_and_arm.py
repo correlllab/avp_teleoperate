@@ -25,8 +25,8 @@ import yaml
 
 
 
-RetargetingConfig.set_default_urdf_dir('/home/humanoid/Programs/avp_teleoperate/assets')
-with Path('/home/humanoid/Programs/avp_teleoperate/assets/inspire_hand/inspire_hand.yml').open('r') as f:
+RetargetingConfig.set_default_urdf_dir('/home/humanoid/avp_teleoperate/assets')
+with Path('/home/humanoid/avp_teleoperate/assets/inspire_hand/inspire_hand.yml').open('r') as f:
     cfg = yaml.safe_load(f)
 #print(f"{cfg=}")
 left_retargeting_config = RetargetingConfig.from_dict(cfg['left'])
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     print(f"args:{args}\n")
 
     # image client: img_config should be the same as the configuration in image_server.py (of Robot's development computing unit)
-    img_config = {'fps': 30, 'head_camera_type': 'realsense', 'head_camera_image_shape': [1080, 1920], 'head_camera_id_numbers': ['926522071700']}
+    #img_config = {'fps': 30, 'head_camera_type': 'realsense', 'head_camera_image_shape': [1080, 1920], 'head_camera_id_numbers': ['926522071700']}
     """img_config = {
         'fps': 30,
         'head_camera_type': 'opencv',
@@ -88,6 +88,13 @@ if __name__ == '__main__':
         #'wrist_camera_image_shape': [480, 640],  # Wrist camera resolution
         #'wrist_camera_id_numbers': [2, 4],
     }"""
+    #img_config = {'fps': 30, 'head_camera_type': 'opencv', 'head_camera_image_shape': [240, 640], 'head_camera_id_numbers': [0]}
+    img_config = {
+        'fps':30,                                                          # frame per second
+        'head_camera_type': 'realsense',                                  # opencv or realsense
+        'head_camera_image_shape': [480, 640],                            # Head camera resolution  [height, width]
+        'head_camera_id_numbers': ["926522071700"],                       # realsense camera's serial number
+    }
     ASPECT_RATIO_THRESHOLD = 2.0 # If the aspect ratio exceeds this value, it is considered binocular
     if len(img_config['head_camera_id_numbers']) > 1 or (img_config['head_camera_image_shape'][1] / img_config['head_camera_image_shape'][0] > ASPECT_RATIO_THRESHOLD):
         BINOCULAR = True

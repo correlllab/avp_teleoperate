@@ -20,7 +20,7 @@ class H1_2_ArmIK:
         np.set_printoptions(precision=5, suppress=True, linewidth=200)
 
         self.Visualization = Visualization
-        asset_dir = "/home/humanoid/Programs/avp_teleoperate/assets/h1_2/"
+        asset_dir = "/home/humanoid/avp_teleoperate/assets/h1_2/"
         
         self.robot = pin.RobotWrapper.BuildFromURDF(f'{asset_dir}h1_2.urdf', asset_dir)
        
